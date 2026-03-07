@@ -694,26 +694,19 @@ def render_input():
                 st.session_state.source_url = f"csv_upload:{uploaded_file.name}"
         else:
             st.session_state.source_url = url.strip()
-            progress = st.progress(0, text="Launching scraper...")
-            try:
-                from scraper.fb_ad_library import scrape_fb_ad_library
-                result = scrape_fb_ad_library(
-                    url.strip(), config,
-                    progress_callback=lambda t, p: progress.progress(p, text=t),
-                )
-                if result.get("error"):
-                    st.error(f"Scrape failed: {result['error']}")
-                    return
-                ads = result["ads"]
+            progress = st.progress(0, text="Connecting to Meta Ad Library API...")
+            from scraper.fb_api_scraper import scrape_fb_ad_library
+            result = scrape_fb_ad_library(
+                url.strip(), config,
+                progress_callback=lambda t, p: progress.progress(p, text=t),
+            )
+            if result.get("error"):
                 progress.empty()
-                st.success(f"Scraped **{result['successfully_parsed']}** ads")
-            except ImportError:
-                progress.empty()
-                st.error(
-                    "FB scraping requires Playwright (not available in cloud). "
-                    "Use CSV Upload instead."
-                )
+                st.error(f"Scrape failed: {result['error']}")
                 return
+            ads = result["ads"]
+            progress.empty()
+            st.success(f"Fetched **{result['successfully_parsed']}** ads from Ad Library API")
 
         if not ads:
             st.error("No ads found.")
