@@ -1,0 +1,57 @@
+# Ad Ingestion MVP — Configuration
+# Peak Ventures · Media Buying Ops
+
+# ------- Scraper settings -------
+scraper:
+  max_ads: 75                     # Cap ads to scrape (50-100 range)
+  scroll_delay_seconds: 1.5       # Delay between scroll paginations
+  page_load_timeout_seconds: 30   # Playwright page load timeout
+  viewport_width: 1280
+  viewport_height: 900
+
+# ------- Claude API settings -------
+claude:
+  model: "claude-sonnet-4-5-20250929"
+  clustering_max_tokens: 4096
+  copygen_max_tokens: 4096
+
+# ------- Google Sheet settings -------
+google_sheet:
+  spreadsheet_id: "1Ty4RhoWrzRqEpuV0D3r2D-TXL74PHuo18FyeNChu7H0"
+  sheet_name: "Ad Tracker"
+  credentials_path: "credentials.json"
+
+# ------- Copy generation limits -------
+copy_generation:
+  variants_per_angle: 2
+  headline_max_chars: 40
+  primary_text_max_chars: 125
+  banner_text_max_chars: 60
+
+# ------- Banner image generation -------
+banner:
+  enabled: true
+  model: "gpt-image-1"
+  size: "1024x1024"               # 1:1 ratio for FB
+  quality: "high"
+  output_dir: "output/banners"
+
+# ------- Destination networks -------
+networks:
+  - facebook
+  - taboola
+  - gdn
+  - tiktok
+
+# ------- Campaign naming convention -------
+campaign:
+  date_format: "%Y%m%d"          # YYYYMMDD
+
+# ------- Meta (Facebook) API — draft campaigns -------
+meta:
+  ad_account_id: "act_831591045621048"
+  api_version: "v25.0"
+  business_id: "211009195154345"
+  objective: "OUTCOME_LEADS"
+  default_daily_budget: 2000      # in cents ($20)
+  default_countries: ["US"]
