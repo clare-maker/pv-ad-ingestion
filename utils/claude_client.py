@@ -4,6 +4,7 @@ Reads ANTHROPIC_API_KEY from environment and returns a reusable client.
 """
 
 import os
+import logging
 import anthropic
 
 
@@ -13,13 +14,13 @@ def get_claude_client():
     Checks Streamlit secrets first (for cloud deployment),
     then falls back to environment variable.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
     # Try Streamlit secrets (for Streamlit Cloud)
     if not api_key:
         try:
             import streamlit as st
-            api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+            api_key = str(st.secrets.get("ANTHROPIC_API_KEY", "")).strip()
         except Exception:
             pass
 
@@ -28,4 +29,9 @@ def get_claude_client():
             "ANTHROPIC_API_KEY not set. "
             "Add it to .env (local) or Streamlit secrets (cloud)."
         )
+
+    # Debug: log key prefix so we can verify the right key is loaded
+    prefix = api_key[:12] if len(api_key) > 12 else "???"
+    logging.getLogger(__name__).info(f"Using Anthropic key starting with: {prefix}...")
+
     return anthropic.Anthropic(api_key=api_key)
