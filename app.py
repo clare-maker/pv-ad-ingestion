@@ -819,6 +819,12 @@ def render_select():
 
     selections = []
 
+    def _on_topic_toggle(key, slug, angles):
+        """When topic checkbox is toggled by user, update all angle keys to match."""
+        val = st.session_state[key]
+        for a in angles:
+            st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = val
+
     for t_idx, topic in enumerate(topics):
         rank = topic.get("rank", t_idx + 1)
         label = topic.get("topic_label", "Unknown")
@@ -842,19 +848,14 @@ def render_select():
             # Topic-level toggle checkbox (visible when collapsed)
             topic_checked = selected_count > 0
             topic_key = f"topic_{slug}"
-            new_val = st.checkbox(
-                "t", value=topic_checked, key=topic_key,
+            # Force-sync checkbox display to match actual angle state
+            st.session_state[topic_key] = topic_checked
+            st.checkbox(
+                "t", key=topic_key,
                 label_visibility="collapsed",
+                on_change=_on_topic_toggle,
+                args=(topic_key, slug, angles),
             )
-            # If user toggled the topic checkbox, update all angle keys
-            if new_val and not topic_checked:
-                for a in angles:
-                    st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = True
-                st.rerun()
-            elif not new_val and topic_checked:
-                for a in angles:
-                    st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = False
-                st.rerun()
 
         with exp_col:
             exp_label = f"#{rank}  {label}  —  {badge_text}  ·  {ad_count} ads  ·  {selected_count}/{angle_count} angles"
