@@ -34,7 +34,13 @@ def cluster_ads(ads, claude_client, config):
         "ad_count", "avg_days_active", "angles": [...]}]}
     """
     model = config.get("claude", {}).get("model", "claude-sonnet-4-5-20250929")
-    max_tokens = config.get("claude", {}).get("clustering_max_tokens", 4096)
+    configured_max = config.get("claude", {}).get("clustering_max_tokens", 16384)
+
+    # Scale max_tokens based on number of ads — more ads = more topics = larger JSON
+    # ~200 tokens per ad for output is a safe estimate
+    estimated_need = max(4096, len(ads) * 200)
+    max_tokens = min(max(configured_max, estimated_need), 32000)
+    logger.info(f"Clustering {len(ads)} ads with max_tokens={max_tokens}")
 
     # Build the prompt with the ads data
     # Only send the fields Claude needs (not the empty ones)
@@ -62,6 +68,22 @@ def cluster_ads(ads, claude_client, config):
                 messages=[{"role": "user", "content": prompt}],
             )
 
+            # Check if output was truncated
+            if message.stop_reason == "max_tokens":
+                logger.warning(
+                    f"Clustering response truncated at {max_tokens} tokens "
+                    f"(attempt {attempt + 1})"
+                )
+                if attempt == 0:
+                    # Double the limit and retry
+                    max_tokens = min(max_tokens * 2, 64000)
+                    prompt += "\n\nIMPORTANT: Be more concise. Limit to top 15 topics max. Return ONLY valid JSON, no markdown fences."
+                    continue
+                raise ValueError(
+                    f"Clustering response too large even at {max_tokens} tokens. "
+                    f"Try scraping fewer ads per URL."
+                )
+
             response_text = message.content[0].text
             cleaned = _strip_markdown_fences(response_text)
             result = json.loads(cleaned)
@@ -77,7 +99,6 @@ def cluster_ads(ads, claude_client, config):
         except json.JSONDecodeError as e:
             logger.warning(f"JSON parse failed (attempt {attempt + 1}): {e}")
             if attempt == 0:
-                # Retry with a stricter instruction
                 prompt += "\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation."
                 continue
             raise ValueError(
