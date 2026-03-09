@@ -370,17 +370,27 @@ def draft_run_to_meta(run_data, config):
 
             # ── Create 4 ads: 2 text variants × 2 banner images ──
             # Upload banner images from variants
+            # Resolve paths relative to project root (banner_path may be "output/banners/...")
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             image_hashes = []
             for v in variants:
                 banner_path = v.get("banner_path", "")
-                if banner_path and os.path.isfile(banner_path):
+                if not banner_path:
+                    continue
+                # Try path as-is first, then resolve relative to project root
+                resolved = banner_path
+                if not os.path.isfile(resolved):
+                    resolved = os.path.join(project_root, banner_path)
+                if os.path.isfile(resolved):
                     try:
-                        img_hash = upload_ad_image(banner_path, config)
+                        img_hash = upload_ad_image(resolved, config)
                         image_hashes.append(img_hash)
                     except Exception as e:
-                        logger.warning(f"Failed to upload banner {banner_path}: {e}")
-                elif banner_path:
-                    logger.warning(f"Banner file not found: {banner_path}")
+                        logger.warning(f"Failed to upload banner {resolved}: {e}")
+                        all_errors.append(f"{angle_slug}: Banner upload failed — {e}")
+                else:
+                    logger.warning(f"Banner file not found: {banner_path} (also tried {resolved})")
+                    all_errors.append(f"{angle_slug}: Banner file not found: {banner_path}")
 
             if not image_hashes:
                 logger.warning(
@@ -398,6 +408,11 @@ def draft_run_to_meta(run_data, config):
                 except Exception as e:
                     all_errors.append(f"{angle_slug}: Placeholder upload failed — {e}")
                     logger.warning(f"Placeholder image failed: {e}")
+
+            if not image_hashes:
+                all_errors.append(
+                    f"{angle_slug}: No images available — 0 ads created for this ad set"
+                )
 
             # Create ads — cross every text variant with every image
             ads_created = []
