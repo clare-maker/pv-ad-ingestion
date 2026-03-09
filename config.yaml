@@ -12,7 +12,7 @@ scraper:
 # ------- Claude API settings -------
 claude:
   model: "claude-sonnet-4-5-20250929"
-  clustering_max_tokens: 4096
+  clustering_max_tokens: 16384       # Needs headroom for 100+ ads
   copygen_max_tokens: 4096
 
 # ------- Google Sheet settings -------
