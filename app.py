@@ -644,10 +644,10 @@ def render_input():
     st.markdown('<p class="page-subtitle">Analyze competitor ads from Facebook Ad Library or CSV upload.</p>', unsafe_allow_html=True)
 
     with st.container(border=True):
-        col_main, col_settings = st.columns([5, 3], gap="large")
+        col_crawl, col_launch = st.columns([5, 3], gap="large")
 
-        with col_main:
-            st.markdown('<p class="section-label">Ad Source</p>', unsafe_allow_html=True)
+        with col_crawl:
+            st.markdown('<p class="section-label">Crawl</p>', unsafe_allow_html=True)
             input_method = st.radio(
                 "Method", ["FB Ad Library URL", "CSV Upload"],
                 horizontal=True, label_visibility="collapsed",
@@ -659,14 +659,14 @@ def render_input():
                 urls_text = st.text_area(
                     "URLs",
                     placeholder="Paste one or more FB Ad Library URLs, one per line...",
-                    height=100,
+                    height=180,
                 )
                 st.caption("One URL per line. All pages will be scraped and combined.")
             else:
                 uploaded_file = st.file_uploader("CSV", type=["csv"], label_visibility="collapsed")
 
-        with col_settings:
-            st.markdown('<p class="section-label">Launch Settings</p>', unsafe_allow_html=True)
+        with col_launch:
+            st.markdown('<p class="section-label">Launch</p>', unsafe_allow_html=True)
             networks = config.get("networks", ["facebook"])
             network = st.selectbox("Destination Network", networks, index=0)
             pv_domain = st.text_input("PV Domain", placeholder="thepennypro.com")
@@ -783,6 +783,14 @@ def render_select():
     max_score = max(scores) if scores else 1
     total_angles = sum(len(t.get("angles", [])) for t in topics)
 
+    # ── Initialize ALL checkbox keys upfront (prevents default-True bugs) ──
+    for topic in topics:
+        slug = topic.get("topic_slug", "unknown")
+        for a in topic.get("angles", []):
+            cb_key = f"sel_{slug}_{a.get('angle_slug', 'unknown')}"
+            if cb_key not in st.session_state:
+                st.session_state[cb_key] = True
+
     # ── Toolbar: stats + actions on one row ──
     t_col1, t_col2, t_col3, t_col4 = st.columns([5, 1, 1, 1.5])
     with t_col1:
@@ -796,15 +804,17 @@ def render_select():
         )
     with t_col2:
         if st.button("Select All", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                if key.startswith("sel_"):
-                    st.session_state[key] = True
+            for topic in topics:
+                slug = topic.get("topic_slug", "unknown")
+                for a in topic.get("angles", []):
+                    st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = True
             st.rerun()
     with t_col3:
         if st.button("Clear", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                if key.startswith("sel_"):
-                    st.session_state[key] = False
+            for topic in topics:
+                slug = topic.get("topic_slug", "unknown")
+                for a in topic.get("angles", []):
+                    st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = False
             st.rerun()
 
     selections = []
@@ -822,83 +832,88 @@ def render_select():
         angle_count = len(angles)
         selected_count = sum(
             1 for a in angles
-            if st.session_state.get(f"sel_{slug}_{a.get('angle_slug', 'unknown')}", True)
+            if st.session_state.get(f"sel_{slug}_{a.get('angle_slug', 'unknown')}", False)
         )
 
-        # Compact expander label with rank, topic, badge, and counts
-        exp_label = f"#{rank}  {label}  —  {badge_text}  ·  {ad_count} ads  ·  {selected_count}/{angle_count} angles selected"
+        # ── Topic row: checkbox + expander side by side ──
+        cb_col, exp_col = st.columns([0.3, 9.7])
 
-        with st.expander(exp_label, expanded=False):
-            # Topic-level select/deselect all
-            all_selected = selected_count == angle_count
-            topic_key = f"sel_all_{slug}"
-            toggle = st.checkbox("Select all angles", value=all_selected, key=topic_key)
-            if toggle and not all_selected:
+        with cb_col:
+            # Topic-level toggle checkbox (visible when collapsed)
+            topic_checked = selected_count > 0
+            topic_key = f"topic_{slug}"
+            new_val = st.checkbox(
+                "t", value=topic_checked, key=topic_key,
+                label_visibility="collapsed",
+            )
+            # If user toggled the topic checkbox, update all angle keys
+            if new_val and not topic_checked:
                 for a in angles:
                     st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = True
                 st.rerun()
-            elif not toggle and all_selected:
+            elif not new_val and topic_checked:
                 for a in angles:
                     st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = False
                 st.rerun()
 
-            # Individual angle checkboxes
-            selected_angles = []
-            for angle in angles:
-                a_label = angle.get("angle_label", "Unknown")
-                a_slug = angle.get("angle_slug", "unknown")
-                a_count = angle.get("angle_count", 0)
-                intent = angle.get("intent_type", "info")
-                offers = angle.get("offers_and_claims", [])
+        with exp_col:
+            exp_label = f"#{rank}  {label}  —  {badge_text}  ·  {ad_count} ads  ·  {selected_count}/{angle_count} angles"
 
-                cb_key = f"sel_{slug}_{a_slug}"
-                if cb_key not in st.session_state:
-                    st.session_state[cb_key] = True
+            with st.expander(exp_label, expanded=False):
+                # Individual angle checkboxes
+                selected_angles = []
+                for angle in angles:
+                    a_label = angle.get("angle_label", "Unknown")
+                    a_slug = angle.get("angle_slug", "unknown")
+                    a_count = angle.get("angle_count", 0)
+                    intent = angle.get("intent_type", "info")
+                    offers = angle.get("offers_and_claims", [])
 
-                checked = st.checkbox(
-                    f"{a_label}  ·  {a_count} ads",
-                    key=cb_key,
-                    value=st.session_state[cb_key],
-                )
+                    cb_key = f"sel_{slug}_{a_slug}"
 
-                tag_html = f'<span class="pv-tag pv-tag-{intent}">{intent}</span>'
-                offers_html = "".join(
-                    f'<div class="offer-item">{o}</div>'
-                    for o in offers[:3]
-                )
-                st.markdown(
-                    f'<div style="margin:-4px 0 8px 28px;">'
-                    f'{tag_html}'
-                    f'{offers_html}'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+                    checked = st.checkbox(
+                        f"{a_label}  ·  {a_count} ads",
+                        key=cb_key,
+                    )
 
-                if checked:
-                    selected_angles.append(angle)
-
-            # Sample headlines (shown at bottom of expander)
-            all_samples = []
-            for a in angles:
-                all_samples.extend(a.get("sample_headlines", []))
-                all_samples.extend(a.get("sample_banner_texts", []))
-            if all_samples:
-                st.markdown("**Sample headlines:**")
-                for s in all_samples[:3]:
+                    tag_html = f'<span class="pv-tag pv-tag-{intent}">{intent}</span>'
+                    offers_html = "".join(
+                        f'<div class="offer-item">{o}</div>'
+                        for o in offers[:3]
+                    )
                     st.markdown(
-                        f'<div style="color:var(--pv-text-muted); font-size:13px; '
-                        f'font-style:italic; margin:3px 0;">"{s[:80]}"</div>',
+                        f'<div style="margin:-4px 0 8px 28px;">'
+                        f'{tag_html}'
+                        f'{offers_html}'
+                        f'</div>',
                         unsafe_allow_html=True,
                     )
 
-            if selected_angles:
-                selections.append({
-                    "topic_label": label,
-                    "topic_slug": slug,
-                    "topic_rank": badge_text,
-                    "ad_count": ad_count,
-                    "angles": selected_angles,
-                })
+                    if checked:
+                        selected_angles.append(angle)
+
+                # Sample headlines (shown at bottom of expander)
+                all_samples = []
+                for a in angles:
+                    all_samples.extend(a.get("sample_headlines", []))
+                    all_samples.extend(a.get("sample_banner_texts", []))
+                if all_samples:
+                    st.markdown("**Sample headlines:**")
+                    for s in all_samples[:3]:
+                        st.markdown(
+                            f'<div style="color:var(--pv-text-muted); font-size:13px; '
+                            f'font-style:italic; margin:3px 0;">"{s[:80]}"</div>',
+                            unsafe_allow_html=True,
+                        )
+
+        if selected_angles:
+            selections.append({
+                "topic_label": label,
+                "topic_slug": slug,
+                "topic_rank": badge_text,
+                "ad_count": ad_count,
+                "angles": selected_angles,
+            })
 
     # Footer — compact generation bar
     st.markdown("")
