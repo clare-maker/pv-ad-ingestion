@@ -36,7 +36,7 @@ def generate_copy(selections, claude_client, config):
         "angle_slug", "variants": [{"variant_id", "headline", "primary_text", "banner_text"}]}]}
     """
     model = config.get("claude", {}).get("model", "claude-sonnet-4-5-20250929")
-    max_tokens = config.get("claude", {}).get("copygen_max_tokens", 4096)
+    configured_max = config.get("claude", {}).get("copygen_max_tokens", 4096)
     copy_config = config.get("copy_generation", {})
     variants_per_angle = copy_config.get("variants_per_angle", 5)
     hl_max = copy_config.get("headline_max_chars", 40)
@@ -57,6 +57,12 @@ def generate_copy(selections, claude_client, config):
                 "sample_banner_texts": angle.get("sample_banner_texts", []),
             })
 
+    # Scale max_tokens based on number of angles — ~500 tokens per angle for 2 variants
+    n_angles = len(selections_for_prompt)
+    estimated_need = max(4096, n_angles * 500)
+    max_tokens = min(max(configured_max, estimated_need), 32000)
+    logger.info(f"Generating copy for {n_angles} angles with max_tokens={max_tokens}")
+
     prompt = COPYGEN_PROMPT.format(
         variants_per_angle=variants_per_angle,
         hl_max=hl_max,
@@ -74,6 +80,15 @@ def generate_copy(selections, claude_client, config):
                 messages=[{"role": "user", "content": prompt}],
             ) as stream:
                 response = stream.get_final_message()
+
+            # Check if output was truncated
+            if response.stop_reason == "max_tokens":
+                logger.warning(f"Copy response truncated at {max_tokens} tokens (attempt {attempt + 1})")
+                if attempt == 0:
+                    max_tokens = min(max_tokens * 2, 64000)
+                    prompt += "\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences. Be concise."
+                    continue
+                raise ValueError(f"Copy response too large even at {max_tokens} tokens.")
 
             response_text = response.content[0].text
             cleaned = _strip_markdown_fences(response_text)
