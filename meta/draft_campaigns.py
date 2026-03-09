@@ -102,6 +102,7 @@ def create_draft_adset(campaign_id, angle_name, adset_name, config):
     token = _get_token()
     meta_config = config.get("meta", {})
     ad_account = meta_config.get("ad_account_id", "")
+    page_id = meta_config.get("page_id", "")
     daily_budget = meta_config.get("default_daily_budget", 2000)
     countries = meta_config.get("default_countries", ["US"])
 
@@ -126,6 +127,10 @@ def create_draft_adset(campaign_id, angle_name, adset_name, config):
         "targeting": targeting,
     }
 
+    # LEAD_GENERATION objective requires a promoted_object with page_id
+    if page_id:
+        data["promoted_object"] = json.dumps({"page_id": page_id})
+
     result = _post(url, data, token)
     adset_id = result["id"]
     logger.info(f"Created PAUSED ad set '{adset_name}' (ID: {adset_id})")
@@ -133,6 +138,36 @@ def create_draft_adset(campaign_id, angle_name, adset_name, config):
 
 
 # ── Image Upload ──────────────────────────────────────────
+
+def _create_placeholder_image():
+    """Create a minimal solid-color placeholder image for text-only ads."""
+    try:
+        import struct
+        import zlib
+        # Create a minimal 200x200 solid blue PNG
+        width, height = 200, 200
+        raw = b''
+        for _ in range(height):
+            raw += b'\x00' + b'\x1a\x4d\x8c' * width  # blue pixels
+        compressed = zlib.compress(raw)
+
+        def chunk(ctype, data):
+            c = ctype + data
+            return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+
+        png = b'\x89PNG\r\n\x1a\n'
+        png += chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+        png += chunk(b'IDAT', compressed)
+        png += chunk(b'IEND', b'')
+
+        path = '/tmp/placeholder_banner.png'
+        with open(path, 'wb') as f:
+            f.write(png)
+        return path
+    except Exception as e:
+        logger.warning(f"Could not create placeholder image: {e}")
+        return None
+
 
 def upload_ad_image(image_path, config):
     """Upload a banner image to the ad account and return its image_hash.
@@ -329,7 +364,7 @@ def draft_run_to_meta(run_data, config):
             total_adsets += 1
 
             # ── Create 4 ads: 2 text variants × 2 banner images ──
-            # Collect all banner images from variants
+            # Upload banner images from variants
             image_hashes = []
             for v in variants:
                 banner_path = v.get("banner_path", "")
@@ -339,9 +374,27 @@ def draft_run_to_meta(run_data, config):
                         image_hashes.append(img_hash)
                     except Exception as e:
                         logger.warning(f"Failed to upload banner {banner_path}: {e}")
+                elif banner_path:
+                    logger.warning(f"Banner file not found: {banner_path}")
+
+            if not image_hashes:
+                logger.warning(
+                    f"No banner images available for {angle_slug} — "
+                    f"creating text-only ads with placeholder image"
+                )
+                # Upload a 1x1 placeholder so we can still create the ads
+                # (Meta requires an image for link ads)
+                try:
+                    placeholder = _create_placeholder_image()
+                    if placeholder:
+                        img_hash = upload_ad_image(placeholder, config)
+                        image_hashes = [img_hash]
+                except Exception as e:
+                    logger.warning(f"Placeholder image failed: {e}")
 
             # Create ads — cross every text variant with every image
             ads_created = []
+            ad_errors = []
             for v_idx, v in enumerate(variants, 1):
                 v_style = v.get("variant_type", "unknown").lower()
                 headline = v.get("headline", "")
@@ -369,7 +422,12 @@ def draft_run_to_meta(run_data, config):
                         ads_created.append(ad)
                         total_ads += 1
                     except Exception as e:
-                        logger.warning(f"Failed to create ad '{ad_name}': {e}")
+                        err_msg = f"Ad '{ad_name}': {e}"
+                        logger.warning(f"Failed to create {err_msg}")
+                        ad_errors.append(err_msg)
+
+            if ad_errors:
+                logger.warning(f"{len(ad_errors)} ad(s) failed for {angle_slug}")
 
             adset["ads"] = ads_created
             adsets.append(adset)
