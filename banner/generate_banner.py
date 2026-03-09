@@ -1,7 +1,6 @@
 """
 Banner image generation via OpenAI GPT-Image-1.
 Generates 1080x1080 Facebook ad banner images from banner_text + topic context.
-Adapted from pv-ad_generation_v2 patterns.
 """
 
 import os
@@ -24,115 +23,123 @@ The canvas is exactly 1080x1080 pixels, square format.
 This must look like a polished, agency-produced social media advertisement
 — not a stock photo, not a mockup, not a generic image.
 It is a finished ad creative ready to upload to Facebook Ads Manager.
-All text must be rendered with perfect clarity — sharp, crisp letterforms
-with zero blur, warping, or artifacts.
+
+CRITICAL TEXT RULES:
+- Render ALL text EXACTLY as specified, character for character.
+- Text must be perfectly legible, sharp, and crisp with zero blur or artifacts.
+- Use a clean, modern sans-serif typeface (like Montserrat Bold or Helvetica Bold).
+- Do NOT add any extra text, logos, watermarks, icons, or decorative elements.
+- Do NOT add any text beyond what is explicitly specified below.
 
 """
 
 # Template 1: Photo top (65%) + clean white bottom (35%) with headline + pill CTA
 LAYOUT_PHOTO_CLEAN = """UPPER ZONE (top 65%):
-A professional stock photograph fills this entire zone edge-to-edge
-with no margins or borders. The photo depicts: {photo_concept}.
+A high-quality photograph fills this entire zone edge-to-edge with no margins.
+The photo depicts: {photo_concept}.
+The photo should feel authentic and editorial — like a magazine feature, not a stock library.
 
 LOWER ZONE (bottom 35%):
-A clean, solid white background fills this zone completely.
+A clean, solid white background.
 
 HEADLINE TEXT:
-The headline reads exactly: "{banner_text}"
-This text is rendered in a bold, heavyweight sans-serif font
-(similar to Montserrat ExtraBold or Helvetica Bold).
-The text is dark near-black colored.
-It is LEFT-ALIGNED, starting from the left edge with moderate padding.
-The text is LARGE — it should be the dominant element in the white zone.
+Centered in the white zone, the text reads exactly: "{banner_text}"
+Bold, heavyweight sans-serif font. Dark near-black color.
+The text should be LARGE — the dominant element in the white zone.
 
 CTA BUTTON:
-In the bottom-right corner of the white zone, there is a small
-pill-shaped button with a bold accent color background and white text
-reading: "Learn More".
+Below the headline, a small pill-shaped button with bold blue background
+and white text reading: "Learn More".
 
 """
 
-# Template 2: Photo top (55%) + bold color bar bottom (45%) with centered headline
-LAYOUT_COLOR_BAR = """UPPER ZONE (top 55-60%):
-A professional stock photograph fills this entire zone edge-to-edge.
+# Template 2: Full-bleed darkened photo + colored highlight boxes behind text
+LAYOUT_HIGHLIGHT = """The entire 1080x1080 canvas is filled edge-to-edge with a single photograph.
 The photo depicts: {photo_concept}.
-
-LOWER ZONE (bottom 40-45%):
-A bold, solid navy blue colored rectangle fills this entire zone
-edge-to-edge. This is a thick, prominent color bar.
-
-HEADLINE TEXT:
-The headline reads exactly: "{banner_text}"
-The text is WHITE, bold heavyweight sans-serif font.
-It is CENTERED horizontally within the color bar.
-The text is VERY LARGE — it should dominate the color bar area.
-
-CTA BUTTON:
-Centered below the headline, a white pill-shaped button with navy blue
-text reading: "Learn More".
-
-"""
-
-# Template 3: Full-bleed darkened photo + colored highlight boxes behind text
-LAYOUT_HIGHLIGHT = """The entire 1080x1080 canvas is filled edge-to-edge with a single stock
-photograph. The photo depicts: {photo_concept}.
-The photo has a darkened treatment (about 30% darkened) so overlaid text
-is readable.
+The photo has a darkened treatment (about 35% darkened) so overlaid text is readable.
 
 HEADLINE TEXT WITH HIGHLIGHT BOXES:
 The headline reads exactly: "{banner_text}"
 Each LINE of text has a solid colored rectangle BEHIND it — like a
 highlighter marker effect. The highlight rectangles are gold/amber colored,
 and the text on top is WHITE, bold sans-serif.
-The text is positioned in the center of the image, left-aligned.
+The text is positioned in the upper-center area of the image.
 
 CTA BAR:
-At the very bottom, spanning full width, a solid navy blue bar
-(about 8% of height). Inside, centered white text: "Learn More".
+At the very bottom, spanning full width, a solid dark navy blue bar
+(about 8% of height). Inside, centered white bold text: "Learn More".
 
 """
 
-NEGATIVE_CONSTRAINTS = """
-CRITICAL RULES:
-- Render ALL text EXACTLY as specified above, character for character.
-  Do not add, remove, change, paraphrase, or abbreviate any word.
-- Text must be perfectly legible, sharp, and crisp with zero artifacts.
-- Use a clean, modern sans-serif typeface for all text.
-- Do NOT add any logos, brand marks, watermarks, or icons anywhere.
-- Do NOT add any text beyond what is explicitly specified above.
-- Do NOT add decorative elements like sparkles, gradients, or lens flares.
-- This is a FLAT, GRAPHIC advertisement — not a 3D render or mockup.
-"""
-
-TEMPLATES = [LAYOUT_PHOTO_CLEAN, LAYOUT_COLOR_BAR, LAYOUT_HIGHLIGHT]
+TEMPLATES = [LAYOUT_PHOTO_CLEAN, LAYOUT_HIGHLIGHT]
 
 
-def _infer_photo_concept(topic, angle, primary_text):
-    """Generate a photo concept description from the ad context."""
-    # Build a simple, relevant photo concept from the topic
-    context = f"{topic} {angle}".lower()
+def _infer_photo_concept(topic, angle, banner_text):
+    """Generate a specific, relevant photo concept from the ad context.
 
-    # Common vertical → photo mappings
-    if any(w in context for w in ["insurance", "auto", "car", "vehicle", "driver"]):
-        return "a person reviewing car insurance documents at a desk, warm lighting, professional setting"
-    elif any(w in context for w in ["medicare", "health", "medical", "doctor"]):
-        return "a confident senior couple walking outdoors in a park, healthy and active, soft natural lighting"
-    elif any(w in context for w in ["home", "house", "mortgage", "real estate"]):
-        return "a beautiful suburban home exterior with a green lawn, golden hour lighting"
-    elif any(w in context for w in ["job", "career", "worker", "construction", "employment"]):
-        return "a professional worker on a construction site wearing a hard hat, golden hour, confident pose"
-    elif any(w in context for w in ["phone", "iphone", "samsung", "tech", "clearance"]):
-        return "a sleek modern smartphone displayed on a clean white surface with soft lighting"
-    elif any(w in context for w in ["wedding", "event", "party"]):
-        return "an elegant outdoor wedding setup with flowers and string lights, warm golden tones"
-    elif any(w in context for w in ["travel", "vacation", "trip", "flight"]):
-        return "a stunning tropical beach at sunset with clear turquoise water"
-    elif any(w in context for w in ["finance", "money", "loan", "credit", "debt", "savings"]):
-        return "a person looking at financial charts on a laptop screen, modern office, warm lighting"
-    elif any(w in context for w in ["weight", "diet", "fitness", "gym", "protein"]):
-        return "an energetic person exercising outdoors in morning sunlight, healthy lifestyle"
-    else:
-        return f"a professional lifestyle scene related to {topic}, clean and modern, warm lighting"
+    Uses the banner_text and angle for specificity rather than just topic keywords.
+    """
+    # Combine all context for better matching
+    context = f"{topic} {angle} {banner_text}".lower()
+
+    # ── Specific verticals with targeted imagery ──
+
+    # Automotive — differentiate between tires, insurance, buying, etc.
+    if any(w in context for w in ["tire", "tyre", "wheel"]):
+        return "close-up of a car's new tire on a clean road, shot from a low angle showing the tread pattern, natural daylight, automotive photography style"
+    if any(w in context for w in ["car insurance", "auto insurance", "vehicle insurance"]):
+        return "a couple happily receiving car keys at a dealership, bright modern showroom, warm lighting"
+    if any(w in context for w in ["car deal", "car price", "new car", "used car", "dealership"]):
+        return "a shiny new car in a showroom with dramatic lighting, reflections on the hood"
+    if "jeep" in context or "truck" in context or "suv" in context:
+        return "a rugged SUV/truck on an open highway with dramatic sky, adventure photography style"
+
+    # Health & Medical
+    if any(w in context for w in ["hair transplant", "hair restoration", "hair loss", "balding"]):
+        return "a confident man in his 30s-40s running his hand through thick hair, natural lighting, portrait style"
+    if any(w in context for w in ["dental", "dentist", "teeth", "smile"]):
+        return "a person with a bright confident smile in natural light, close-up portrait, warm tones"
+    if any(w in context for w in ["medicare", "senior health", "retirement health"]):
+        return "an active senior couple walking on a scenic trail, golden hour sunlight, lifestyle photography"
+    if any(w in context for w in ["weight loss", "diet", "fitness", "gym", "keto"]):
+        return "an energetic person mid-workout with morning sunlight streaming in, dynamic action shot"
+    if any(w in context for w in ["doctor", "medical", "health", "clinic", "treatment", "procedure"]):
+        return "a warm, modern medical office with a doctor having a friendly conversation with a patient, bright and reassuring atmosphere"
+
+    # Finance
+    if any(w in context for w in ["mortgage", "home loan", "refinance"]):
+        return "a family standing in front of a beautiful home with a sold sign, golden hour, joyful expressions"
+    if any(w in context for w in ["debt", "credit card", "loan", "consolidat"]):
+        return "a person looking relieved while reviewing paperwork at a kitchen table, warm home lighting"
+    if any(w in context for w in ["savings", "invest", "retire", "401k", "finance"]):
+        return "a person confidently using a laptop at a modern desk, warm office lighting, successful atmosphere"
+    if any(w in context for w in ["insurance"]) and "car" not in context:
+        return "a happy family in their living room, warm lighting, feeling of security and comfort"
+
+    # Home & Property
+    if any(w in context for w in ["solar", "energy", "panel"]):
+        return "a modern home rooftop with sleek solar panels against a blue sky, architectural photography"
+    if any(w in context for w in ["roofing", "roof", "gutter"]):
+        return "a beautiful home exterior with a brand new roof, curb appeal shot, golden hour lighting"
+    if any(w in context for w in ["home", "house", "property", "real estate"]):
+        return "a stunning home exterior with manicured lawn, golden hour lighting, real estate photography"
+
+    # Tech & Products
+    if any(w in context for w in ["phone", "iphone", "samsung", "smartphone"]):
+        return "a sleek smartphone on a minimalist surface with soft studio lighting, product photography"
+
+    # Employment & Education
+    if any(w in context for w in ["job", "career", "hiring", "employment", "salary"]):
+        return "a confident professional walking into a modern office building, morning light, success energy"
+    if any(w in context for w in ["construction", "trade", "electrician", "plumber", "hvac"]):
+        return "a skilled tradesperson at work on a clean job site, golden hour, professional and capable"
+
+    # Travel
+    if any(w in context for w in ["travel", "vacation", "flight", "hotel", "cruise"]):
+        return "a stunning travel destination with turquoise water and dramatic landscape, wanderlust photography"
+
+    # Fallback — use the topic directly for a relevant scene
+    return f"a compelling lifestyle scene closely related to {topic}, editorial photography style, warm natural lighting, authentic and relatable"
 
 
 def build_banner_prompt(banner_text, topic, angle, primary_text="", template_idx=0):
@@ -143,12 +150,12 @@ def build_banner_prompt(banner_text, topic, angle, primary_text="", template_idx
         topic: Topic label for context
         angle: Angle label for context
         primary_text: Primary ad text for additional context
-        template_idx: Which template layout to use (0-2)
+        template_idx: Which template layout to use (0=clean white, 1=highlight)
 
     Returns:
         Full prompt string for OpenAI image generation
     """
-    photo_concept = _infer_photo_concept(topic, angle, primary_text)
+    photo_concept = _infer_photo_concept(topic, angle, banner_text)
     template = TEMPLATES[template_idx % len(TEMPLATES)]
 
     layout = template.format(
@@ -156,7 +163,7 @@ def build_banner_prompt(banner_text, topic, angle, primary_text="", template_idx
         photo_concept=photo_concept,
     )
 
-    return PREAMBLE + layout + NEGATIVE_CONSTRAINTS
+    return PREAMBLE + layout
 
 
 def generate_banner_image(banner_text, topic, angle, primary_text="",
@@ -168,7 +175,7 @@ def generate_banner_image(banner_text, topic, angle, primary_text="",
         topic: Topic label
         angle: Angle label
         primary_text: Supporting text for context
-        template_idx: Template layout (0-2, rotated across variants)
+        template_idx: Template layout (0-1, rotated across variants)
         config: Dict from config.yaml
 
     Returns:

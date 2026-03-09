@@ -1256,22 +1256,24 @@ def _render_run_creatives(run):
         if meta_draft:
             n_c = meta_draft.get("total_campaigns", 0)
             n_a = meta_draft.get("total_adsets", 0)
+            n_ads = meta_draft.get("total_ads", 0)
             st.markdown(
                 f'<span style="font-size:13px; color:var(--pv-green);">'
-                f'✓ {n_c} campaigns, {n_a} ad sets</span>',
+                f'✓ {n_c} campaigns, {n_a} ad sets, {n_ads} ads</span>',
                 unsafe_allow_html=True,
             )
         else:
             if st.button("Draft to Meta", key=f"meta_{run.get('id')}", use_container_width=True):
                 try:
                     from meta.draft_campaigns import draft_run_to_meta
-                    result = draft_run_to_meta(run, config)
-                    # Save the draft result to the run
+                    with st.spinner("Drafting to Meta (uploading images + creating ads)..."):
+                        result = draft_run_to_meta(run, config)
                     run["meta_draft"] = result
                     save_run(run)
                     st.success(
                         f"Drafted {result['total_campaigns']} campaigns, "
-                        f"{result['total_adsets']} ad sets (PAUSED)"
+                        f"{result['total_adsets']} ad sets, "
+                        f"{result['total_ads']} ads (PAUSED)"
                     )
                     st.rerun()
                 except Exception as e:

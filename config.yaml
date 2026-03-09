@@ -52,6 +52,8 @@ meta:
   ad_account_id: "act_831591045621048"
   api_version: "v25.0"
   business_id: "211009195154345"
+  page_id: "1054778937710513"
+  destination_url: "https://thehealthrank.com/ways-to-move-more-and-boost-your-health"
   objective: "OUTCOME_LEADS"
   default_daily_budget: 2000      # in cents ($20)
   default_countries: ["US"]
