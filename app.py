@@ -1285,11 +1285,18 @@ def _render_run_creatives(run):
             n_c = meta_draft.get("total_campaigns", 0)
             n_a = meta_draft.get("total_adsets", 0)
             n_ads = meta_draft.get("total_ads", 0)
+            color = "var(--pv-green)" if n_ads > 0 else "#e67e22"
             st.markdown(
-                f'<span style="font-size:13px; color:var(--pv-green);">'
+                f'<span style="font-size:13px; color:{color};">'
                 f'✓ {n_c} campaigns, {n_a} ad sets, {n_ads} ads</span>',
                 unsafe_allow_html=True,
             )
+            # Show stored errors so user can see why ads may have failed
+            draft_errors = meta_draft.get("errors", [])
+            if draft_errors:
+                with st.expander(f"⚠️ {len(draft_errors)} warning(s)", expanded=(n_ads == 0)):
+                    for err in draft_errors:
+                        st.warning(err)
         else:
             if st.button("Draft to Meta", key=f"meta_{run.get('id')}", use_container_width=True):
                 try:
@@ -1309,7 +1316,6 @@ def _render_run_creatives(run):
                         with st.expander(f"⚠️ {len(errors)} warning(s) during draft", expanded=True):
                             for err in errors:
                                 st.warning(err)
-                    st.rerun()
                 except Exception as e:
                     st.error(f"Meta draft failed: {e}")
 
