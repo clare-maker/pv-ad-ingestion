@@ -90,6 +90,10 @@ def cluster_ads(ads, claude_client, config):
             cleaned = _strip_markdown_fences(response_text)
             result = json.loads(cleaned)
 
+            # Handle Claude returning a list instead of {"topics": [...]}
+            if isinstance(result, list):
+                result = {"topics": result}
+
             # Add rank numbers if not present
             for i, topic in enumerate(result.get("topics", [])):
                 if "rank" not in topic:

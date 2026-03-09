@@ -94,6 +94,10 @@ def generate_copy(selections, claude_client, config):
             cleaned = _strip_markdown_fences(response_text)
             result = json.loads(cleaned)
 
+            # Handle Claude returning a list instead of {"creatives": [...]}
+            if isinstance(result, list):
+                result = {"creatives": result}
+
             # Enforce character limits (truncate if Claude exceeded them)
             for creative in result.get("creatives", []):
                 for variant in creative.get("variants", []):
