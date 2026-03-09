@@ -140,15 +140,18 @@ def create_draft_adset(campaign_id, angle_name, adset_name, config):
 # ── Image Upload ──────────────────────────────────────────
 
 def _create_placeholder_image():
-    """Create a minimal solid-color placeholder image for text-only ads."""
+    """Create a 1080x1080 solid-color placeholder image for ads without banners.
+
+    Meta requires at least 600x600 for link ads. We use 1080x1080 to match
+    the standard Facebook ad size.
+    """
     try:
         import struct
         import zlib
-        # Create a minimal 200x200 solid blue PNG
-        width, height = 200, 200
-        raw = b''
-        for _ in range(height):
-            raw += b'\x00' + b'\x1a\x4d\x8c' * width  # blue pixels
+        width, height = 1080, 1080
+        # Dark blue-gray row: filter byte + RGB pixels
+        row = b'\x00' + b'\x1a\x2d\x4c' * width
+        raw = row * height
         compressed = zlib.compress(raw)
 
         def chunk(ctype, data):
@@ -160,9 +163,10 @@ def _create_placeholder_image():
         png += chunk(b'IDAT', compressed)
         png += chunk(b'IEND', b'')
 
-        path = '/tmp/placeholder_banner.png'
+        path = '/tmp/placeholder_banner_1080.png'
         with open(path, 'wb') as f:
             f.write(png)
+        logger.info(f"Created 1080x1080 placeholder image at {path}")
         return path
     except Exception as e:
         logger.warning(f"Could not create placeholder image: {e}")
@@ -337,6 +341,7 @@ def draft_run_to_meta(run_data, config):
     results = []
     total_adsets = 0
     total_ads = 0
+    all_errors = []  # Collect all errors for surfacing to the user
 
     for topic_slug, topic_data in topics.items():
         # Campaign name: {topic_slug}_{domain}_{buyer}_{date}
@@ -380,16 +385,18 @@ def draft_run_to_meta(run_data, config):
             if not image_hashes:
                 logger.warning(
                     f"No banner images available for {angle_slug} — "
-                    f"creating text-only ads with placeholder image"
+                    f"creating ads with placeholder image"
                 )
-                # Upload a 1x1 placeholder so we can still create the ads
-                # (Meta requires an image for link ads)
+                all_errors.append(f"{angle_slug}: No banner files found, using placeholder")
                 try:
                     placeholder = _create_placeholder_image()
                     if placeholder:
                         img_hash = upload_ad_image(placeholder, config)
                         image_hashes = [img_hash]
+                    else:
+                        all_errors.append(f"{angle_slug}: Placeholder image creation returned None")
                 except Exception as e:
+                    all_errors.append(f"{angle_slug}: Placeholder upload failed — {e}")
                     logger.warning(f"Placeholder image failed: {e}")
 
             # Create ads — cross every text variant with every image
@@ -428,6 +435,7 @@ def draft_run_to_meta(run_data, config):
 
             if ad_errors:
                 logger.warning(f"{len(ad_errors)} ad(s) failed for {angle_slug}")
+                all_errors.extend(ad_errors)
 
             adset["ads"] = ads_created
             adsets.append(adset)
@@ -445,4 +453,5 @@ def draft_run_to_meta(run_data, config):
         "total_campaigns": len(results),
         "total_adsets": total_adsets,
         "total_ads": total_ads,
+        "errors": all_errors,
     }

@@ -653,14 +653,15 @@ def render_input():
                 horizontal=True, label_visibility="collapsed",
             )
 
-            url = ""
+            urls_text = ""
             uploaded_file = None
             if input_method == "FB Ad Library URL":
-                url = st.text_input(
-                    "URL",
-                    placeholder="https://www.facebook.com/ads/library/?...&view_all_page_id=...",
+                urls_text = st.text_area(
+                    "URLs",
+                    placeholder="Paste one or more FB Ad Library URLs, one per line...",
+                    height=100,
                 )
-                st.caption("Paste the full FB Ad Library URL for any advertiser page.")
+                st.caption("One URL per line. All pages will be scraped and combined.")
             else:
                 uploaded_file = st.file_uploader("CSV", type=["csv"], label_visibility="collapsed")
 
@@ -677,9 +678,11 @@ def render_input():
         do_scrape = st.button("Scrape & Analyze", type="primary", use_container_width=True)
 
     if do_scrape:
-        if input_method == "FB Ad Library URL" and not url:
-            st.error("Enter a FB Ad Library URL.")
-            return
+        if input_method == "FB Ad Library URL":
+            urls = [u.strip() for u in urls_text.strip().splitlines() if u.strip()]
+            if not urls:
+                st.error("Enter at least one FB Ad Library URL.")
+                return
         if input_method == "CSV Upload" and not uploaded_file:
             st.error("Upload a CSV file.")
             return
@@ -693,20 +696,22 @@ def render_input():
                 ads = parse_csv_upload(uploaded_file)
                 st.session_state.source_url = f"csv_upload:{uploaded_file.name}"
         else:
-            st.session_state.source_url = url.strip()
-            progress = st.progress(0, text="Connecting to Meta Ad Library API...")
             from scraper.fb_api_scraper import scrape_fb_ad_library
-            result = scrape_fb_ad_library(
-                url.strip(), config,
-                progress_callback=lambda t, p: progress.progress(p, text=t),
-            )
-            if result.get("error"):
+            st.session_state.source_url = " ; ".join(urls)
+            all_ads = []
+            for i, single_url in enumerate(urls):
+                progress = st.progress(0, text=f"Scraping URL {i+1}/{len(urls)}...")
+                result = scrape_fb_ad_library(
+                    single_url, config,
+                    progress_callback=lambda t, p, idx=i: progress.progress(p, text=f"[{idx+1}/{len(urls)}] {t}"),
+                )
                 progress.empty()
-                st.error(f"Scrape failed: {result['error']}")
-                return
-            ads = result["ads"]
-            progress.empty()
-            st.success(f"Fetched **{result['successfully_parsed']}** ads from Ad Library API")
+                if result.get("error"):
+                    st.warning(f"URL {i+1} failed: {result['error']}")
+                    continue
+                all_ads.extend(result["ads"])
+                st.success(f"URL {i+1}: fetched **{result['successfully_parsed']}** ads")
+            ads = all_ads
 
         if not ads:
             st.error("No ads found.")
@@ -752,13 +757,19 @@ def render_select():
     st.markdown('<p class="page-title">Topic Wall</p>', unsafe_allow_html=True)
     st.markdown('<p class="page-subtitle">Select topics and angles to generate creatives for.</p>', unsafe_allow_html=True)
 
-    # Source link
+    # Source link(s)
     source_url = st.session_state.source_url
     if source_url and not source_url.startswith("csv_upload"):
+        url_parts = [u.strip() for u in source_url.split(";") if u.strip()]
+        if len(url_parts) == 1:
+            links_html = f'Source: <a href="{url_parts[0]}" target="_blank">FB Ad Library ↗</a>'
+        else:
+            links_html = " · ".join(
+                f'<a href="{u}" target="_blank">Source {i+1} ↗</a>'
+                for i, u in enumerate(url_parts)
+            )
         st.markdown(
-            f'<div class="source-bar">'
-            f'Source: <a href="{source_url}" target="_blank">FB Ad Library ↗</a>'
-            f'</div>',
+            f'<div class="source-bar">{links_html}</div>',
             unsafe_allow_html=True,
         )
 
@@ -798,95 +809,96 @@ def render_select():
 
     selections = []
 
-    for row_start in range(0, len(topics), 2):
-        cols = st.columns(2, gap="medium")
-        for col_idx, col in enumerate(cols):
-            t_idx = row_start + col_idx
-            if t_idx >= len(topics):
-                break
+    for t_idx, topic in enumerate(topics):
+        rank = topic.get("rank", t_idx + 1)
+        label = topic.get("topic_label", "Unknown")
+        slug = topic.get("topic_slug", "unknown")
+        ad_count = topic.get("ad_count", 0)
+        avg_days = topic.get("avg_days_active", 0)
+        angles = topic.get("angles", [])
+        badge_text, badge_class = _opp_badge(scores[t_idx], max_score)
 
-            topic = topics[t_idx]
-            rank = topic.get("rank", t_idx + 1)
-            label = topic.get("topic_label", "Unknown")
-            slug = topic.get("topic_slug", "unknown")
-            ad_count = topic.get("ad_count", 0)
-            avg_days = topic.get("avg_days_active", 0)
-            top_dest = topic.get("top_destination", "")
-            angles = topic.get("angles", [])
-            badge_text, badge_class = _opp_badge(scores[t_idx], max_score)
+        # Count currently selected angles for this topic
+        angle_count = len(angles)
+        selected_count = sum(
+            1 for a in angles
+            if st.session_state.get(f"sel_{slug}_{a.get('angle_slug', 'unknown')}", True)
+        )
 
-            with col:
-                with st.container(border=True):
-                    # Header: rank + topic + opp badge
+        # Compact expander label with rank, topic, badge, and counts
+        exp_label = f"#{rank}  {label}  —  {badge_text}  ·  {ad_count} ads  ·  {selected_count}/{angle_count} angles selected"
+
+        with st.expander(exp_label, expanded=False):
+            # Topic-level select/deselect all
+            all_selected = selected_count == angle_count
+            topic_key = f"sel_all_{slug}"
+            toggle = st.checkbox("Select all angles", value=all_selected, key=topic_key)
+            if toggle and not all_selected:
+                for a in angles:
+                    st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = True
+                st.rerun()
+            elif not toggle and all_selected:
+                for a in angles:
+                    st.session_state[f"sel_{slug}_{a.get('angle_slug', 'unknown')}"] = False
+                st.rerun()
+
+            # Individual angle checkboxes
+            selected_angles = []
+            for angle in angles:
+                a_label = angle.get("angle_label", "Unknown")
+                a_slug = angle.get("angle_slug", "unknown")
+                a_count = angle.get("angle_count", 0)
+                intent = angle.get("intent_type", "info")
+                offers = angle.get("offers_and_claims", [])
+
+                cb_key = f"sel_{slug}_{a_slug}"
+                if cb_key not in st.session_state:
+                    st.session_state[cb_key] = True
+
+                checked = st.checkbox(
+                    f"{a_label}  ·  {a_count} ads",
+                    key=cb_key,
+                    value=st.session_state[cb_key],
+                )
+
+                tag_html = f'<span class="pv-tag pv-tag-{intent}">{intent}</span>'
+                offers_html = "".join(
+                    f'<div class="offer-item">{o}</div>'
+                    for o in offers[:3]
+                )
+                st.markdown(
+                    f'<div style="margin:-4px 0 8px 28px;">'
+                    f'{tag_html}'
+                    f'{offers_html}'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                if checked:
+                    selected_angles.append(angle)
+
+            # Sample headlines (shown at bottom of expander)
+            all_samples = []
+            for a in angles:
+                all_samples.extend(a.get("sample_headlines", []))
+                all_samples.extend(a.get("sample_banner_texts", []))
+            if all_samples:
+                st.markdown("**Sample headlines:**")
+                for s in all_samples[:3]:
                     st.markdown(
-                        f'<div class="topic-header">'
-                        f'<span class="rank-num">{rank}</span>'
-                        f'<span class="topic-title">{label}</span>'
-                        f'<span class="opp-badge {badge_class}">{badge_text}</span>'
-                        f'</div>'
-                        f'<div style="font-size:13px; color:var(--pv-text-muted); margin:-4px 0 8px 38px;">'
-                        f'{ad_count} ads · {avg_days}d avg'
-                        f'{"  ·  " + top_dest if top_dest else ""}'
-                        f'</div>',
+                        f'<div style="color:var(--pv-text-muted); font-size:13px; '
+                        f'font-style:italic; margin:3px 0;">"{s[:80]}"</div>',
                         unsafe_allow_html=True,
                     )
 
-                    # Angles
-                    selected_angles = []
-                    for angle in angles:
-                        a_label = angle.get("angle_label", "Unknown")
-                        a_slug = angle.get("angle_slug", "unknown")
-                        a_count = angle.get("angle_count", 0)
-                        intent = angle.get("intent_type", "info")
-                        offers = angle.get("offers_and_claims", [])
-
-                        cb_key = f"sel_{slug}_{a_slug}"
-                        if cb_key not in st.session_state:
-                            st.session_state[cb_key] = True
-
-                        checked = st.checkbox(
-                            f"{a_label}  ·  {a_count} ads",
-                            key=cb_key,
-                            value=st.session_state[cb_key],
-                        )
-
-                        tag_html = f'<span class="pv-tag pv-tag-{intent}">{intent}</span>'
-                        offers_html = "".join(
-                            f'<div class="offer-item">{o}</div>'
-                            for o in offers[:3]
-                        )
-                        st.markdown(
-                            f'<div style="margin:-4px 0 8px 28px;">'
-                            f'{tag_html}'
-                            f'{offers_html}'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
-
-                        if checked:
-                            selected_angles.append(angle)
-
-                    # Expandable details
-                    with st.expander("Sample headlines"):
-                        all_samples = []
-                        for a in angles:
-                            all_samples.extend(a.get("sample_headlines", []))
-                            all_samples.extend(a.get("sample_banner_texts", []))
-                        for s in all_samples[:3]:
-                            st.markdown(
-                                f'<div style="color:var(--pv-text-muted); font-size:13px; '
-                                f'font-style:italic; margin:3px 0;">"{s[:80]}"</div>',
-                                unsafe_allow_html=True,
-                            )
-
-                    if selected_angles:
-                        selections.append({
-                            "topic_label": label,
-                            "topic_slug": slug,
-                            "topic_rank": badge_text,
-                            "ad_count": ad_count,
-                            "angles": selected_angles,
-                        })
+            if selected_angles:
+                selections.append({
+                    "topic_label": label,
+                    "topic_slug": slug,
+                    "topic_rank": badge_text,
+                    "ad_count": ad_count,
+                    "angles": selected_angles,
+                })
 
     # Footer — compact generation bar
     st.markdown("")
@@ -1275,6 +1287,12 @@ def _render_run_creatives(run):
                         f"{result['total_adsets']} ad sets, "
                         f"{result['total_ads']} ads (PAUSED)"
                     )
+                    # Show errors if any ads failed
+                    errors = result.get("errors", [])
+                    if errors:
+                        with st.expander(f"⚠️ {len(errors)} warning(s) during draft", expanded=True):
+                            for err in errors:
+                                st.warning(err)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Meta draft failed: {e}")
