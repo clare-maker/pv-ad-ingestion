@@ -59,23 +59,25 @@ def cluster_ads(ads, claude_client, config):
         ads_json=json.dumps(ads_for_prompt, indent=2),
     )
 
-    # Call Claude API — retry up to 2 times on JSON parse failure
+    # Call Claude API with streaming (required for large/long responses)
+    # Retry up to 2 times on JSON parse failure
     for attempt in range(2):
         try:
-            message = claude_client.messages.create(
+            # Use streaming to avoid timeout on large requests
+            with claude_client.messages.stream(
                 model=model,
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
-            )
+            ) as stream:
+                response = stream.get_final_message()
 
             # Check if output was truncated
-            if message.stop_reason == "max_tokens":
+            if response.stop_reason == "max_tokens":
                 logger.warning(
                     f"Clustering response truncated at {max_tokens} tokens "
                     f"(attempt {attempt + 1})"
                 )
                 if attempt == 0:
-                    # Double the limit and retry
                     max_tokens = min(max_tokens * 2, 64000)
                     prompt += "\n\nIMPORTANT: Be more concise. Limit to top 15 topics max. Return ONLY valid JSON, no markdown fences."
                     continue
@@ -84,7 +86,7 @@ def cluster_ads(ads, claude_client, config):
                     f"Try scraping fewer ads per URL."
                 )
 
-            response_text = message.content[0].text
+            response_text = response.content[0].text
             cleaned = _strip_markdown_fences(response_text)
             result = json.loads(cleaned)
 

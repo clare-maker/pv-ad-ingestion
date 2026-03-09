@@ -65,16 +65,17 @@ def generate_copy(selections, claude_client, config):
         selections_json=json.dumps(selections_for_prompt, indent=2),
     )
 
-    # Call Claude API — retry once on JSON parse failure
+    # Call Claude API with streaming (avoids timeout on large requests)
     for attempt in range(2):
         try:
-            message = claude_client.messages.create(
+            with claude_client.messages.stream(
                 model=model,
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
-            )
+            ) as stream:
+                response = stream.get_final_message()
 
-            response_text = message.content[0].text
+            response_text = response.content[0].text
             cleaned = _strip_markdown_fences(response_text)
             result = json.loads(cleaned)
 
